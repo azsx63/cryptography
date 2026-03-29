@@ -4,23 +4,10 @@ def hex_to_bytes(hex_str):
     hex_str_clean = hex_str.strip().replace(" ", "").replace("\n", "").replace("\t", "")
     # 校验长度为偶数
     if len(hex_str_clean) % 2 != 0:
-      raise ValueError(f"十六进制字符串长度必须为偶数，当前长度: {len(hex_str_clean)}，字符串: {hex_str_clean}")
+        raise ValueError(f"十六进制字符串长度必须为偶数，当前长度: {len(hex_str_clean)}，字符串: {hex_str_clean}")
     return bytes.fromhex(hex_str_clean)
 
-def bytes_to_hex(b):
-    """字节数组转十六进制字符串"""
-    return b.hex()
-
-def xor_bytes(a, b):
-    """两个字节数组异或（自动截断到较短长度）"""
-    min_len = min(len(a), len(b))
-    return bytes(x ^ y for x, y in zip(a[:min_len], b[:min_len]))
-
-def is_printable(c):
-    """判断字符是否为可打印ASCII字符"""
-    return 32 <= c <= 126
-
-# -------------------------- 1. 输入所有密文（严格核对长度，修正密文#1） --------------------------
+# ===================== 1. 完整密文列表（严格核对长度，修正密文#1） =====================
 cipher_hex_list = [
     # 密文#1（已修正末尾，长度106）
     "315c4eeaa8b5f8aaf9174145bf43e1784b8fa00dc71d885a804e5ee9fa40b16349c146fb778cdf2d3aff021dffff5b403b510d0d0",
@@ -46,47 +33,40 @@ cipher_hex_list = [
     "32510ba9babebbbefd001547a810e67149caee11d945cd7fc81a05e9f85aac650e9052ba6a8cd8257bf14d13e6f0a803b54fde9e"
 ]
 
-# 转换为字节数组，保留原始长度
-cipher_bytes_list = [hex_to_bytes(h) for h in cipher_hex_list]
-max_len = max(len(c) for c in cipher_bytes_list)
+# 转换为字节数组
+cipher_bytes = [hex_to_bytes(h) for h in cipher_hex_list]
+max_len = max(len(c) for c in cipher_bytes)
+cipher_padded = [c.ljust(max_len, b'\x00') for c in cipher_bytes]
 
-# -------------------------- 2. 初始化明文与密钥数组 --------------------------
-plain_list = [bytearray(len(c)) for c in cipher_bytes_list]
+# 初始化密钥和明文
 key = bytearray(max_len)
-key_found = [False] * max_len  # 标记密钥位置是否已确定
-
-# -------------------------- 3. 空格推断法还原明文与密钥 --------------------------
+plain_list = [bytearray(max_len) for _ in cipher_padded]
 SPACE = ord(' ')
-for pos in range(max_len):
-    # 遍历所有已知密文（0-9），尝试假设该位置为空格
-    for guess_cipher_idx in range(10):
-        if pos >= len(cipher_bytes_list[guess_cipher_idx]):
+
+# 空格推断法还原密钥
+for i in range(max_len):
+    for guess_idx in range(len(cipher_padded)-1):
+        if i >= len(cipher_padded[guess_idx]):
             continue
-        # 计算候选密钥
-        k_guess = cipher_bytes_list[guess_cipher_idx][pos] ^ SPACE
-        # 验证所有密文该位置是否为可打印字符
+        k_guess = cipher_padded[guess_idx][i] ^ SPACE
         valid = True
-        for c_idx in range(len(cipher_bytes_list)):
-            if pos >= len(cipher_bytes_list[c_idx]):
+        for c_idx in range(len(cipher_padded)):
+            if i >= len(cipher_padded[c_idx]):
                 continue
-            p = cipher_bytes_list[c_idx][pos] ^ k_guess
-            if not is_printable(p):
+            p = cipher_padded[c_idx][i] ^ k_guess
+            if not (32 <= p <= 126):
                 valid = False
                 break
         if valid:
-            # 验证通过，更新密钥
-            key[pos] = k_guess
-            key_found[pos] = True
-            # 更新对应明文
-            for c_idx in range(len(cipher_bytes_list)):
-                if pos < len(cipher_bytes_list[c_idx]):
-                    plain_list[c_idx][pos] = cipher_bytes_list[c_idx][pos] ^ key[pos]
+            key[i] = k_guess
+            for c_idx in range(len(cipher_padded)):
+                if i < len(cipher_padded[c_idx]):
+                    plain_list[c_idx][i] = cipher_padded[c_idx][i] ^ key[i]
             break
 
-# -------------------------- 4. 输出结果 --------------------------
-print("="*80)
-print("✅ 解密成功！")
-print("🎯 最终明文：")
-target_plain = plain_list[-1].decode('ascii', errors='replace').strip('\x00')
+# 解密目标密文
+target_plain = plain_list[-1].decode('ascii', errors='replace').rstrip('\x00')
+print("=" * 60)
+print("The secret message is:")
 print(target_plain)
-print("="*80)
+print("=" * 60)
